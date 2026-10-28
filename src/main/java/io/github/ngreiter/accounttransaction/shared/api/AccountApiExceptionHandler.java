@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import io.github.ngreiter.accounttransaction.account.application.AccountCreationException;
+import io.github.ngreiter.accounttransaction.account.application.AccountNotFoundException;
 
 @RestControllerAdvice
 public class AccountApiExceptionHandler {
@@ -28,6 +29,12 @@ public class AccountApiExceptionHandler {
     ResponseEntity<ApiError> handleIllegalArgument(IllegalArgumentException exception) {
         return ResponseEntity.badRequest()
                 .body(new ApiError("VALIDATION_ERROR", "Verifique os dados enviados."));
+    }
+
+    @ExceptionHandler(AccountNotFoundException.class)
+    ResponseEntity<ApiError> handleAccountNotFound(AccountNotFoundException exception) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(new ApiError("RESOURCE_NOT_FOUND", "Recurso não encontrado."));
     }
 
     @ExceptionHandler(Exception.class)
