@@ -15,8 +15,30 @@ import io.github.ngreiter.accounttransaction.domain.MovementType;
 
 public interface AccountTransactionRepository extends JpaRepository<AccountTransaction, UUID> {
 
-    Page<AccountTransaction> findByAccount_AccountNumberAndPostedAtGreaterThanEqualAndPostedAtLessThanOrderByPostedAtAscIdAsc(
-            String accountNumber, Instant fromInclusive, Instant toExclusive, Pageable pageable);
+    @Query(value = """
+            select f.id as financialTransactionId,
+                   f.transactionType as transactionType,
+                   t.movementType as movementType,
+                   t.amount as amount,
+                   t.description as description,
+                   t.postedAt as postedAt
+            from AccountTransaction t
+            join t.financialTransaction f
+            where t.account.accountNumber = :accountNumber
+              and t.postedAt >= :fromInclusive
+              and t.postedAt < :toExclusive
+            order by t.postedAt asc, t.id asc
+            """,
+            countQuery = """
+                    select count(t)
+                    from AccountTransaction t
+                    where t.account.accountNumber = :accountNumber
+                      and t.postedAt >= :fromInclusive
+                      and t.postedAt < :toExclusive
+                    """)
+    Page<AccountTransactionStatementRow> findStatementEntries(@Param("accountNumber") String accountNumber,
+            @Param("fromInclusive") Instant fromInclusive, @Param("toExclusive") Instant toExclusive,
+            Pageable pageable);
 
     @Query("""
             select coalesce(sum(case when t.movementType = :credit then t.amount else -t.amount end), 0)
