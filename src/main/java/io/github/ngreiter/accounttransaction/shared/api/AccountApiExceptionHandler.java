@@ -29,4 +29,10 @@ public class AccountApiExceptionHandler {
         return ResponseEntity.badRequest()
                 .body(new ApiError("VALIDATION_ERROR", "Verifique os dados enviados."));
     }
+
+    @ExceptionHandler(Exception.class)
+    ResponseEntity<ApiError> handleUnexpected(Exception exception) {
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(new ApiError("INTERNAL_ERROR", "Ocorreu um erro interno."));
+    }
 }
