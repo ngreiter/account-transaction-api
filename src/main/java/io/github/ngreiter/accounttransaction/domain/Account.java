@@ -27,4 +27,26 @@ public class Account {
 
     protected Account() {
     }
+
+    public Account(String accountNumber, String document) {
+        this.accountNumber = accountNumber;
+        this.document = document;
+        this.balance = BigDecimal.ZERO.setScale(2);
+    }
+
+    public String getAccountNumber() {
+        return accountNumber;
+    }
+
+    public String getDocument() {
+        return document;
+    }
+
+    public BigDecimal getBalance() {
+        return balance;
+    }
+
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
 }

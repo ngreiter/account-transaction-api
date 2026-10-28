@@ -46,4 +46,25 @@ public class IdempotencyRecord {
 
     protected IdempotencyRecord() {
     }
+
+    public IdempotencyRecord(String scope, String idempotencyKey, String requestHash,
+            Integer responseStatus, String responseBody) {
+        this.scope = scope;
+        this.idempotencyKey = idempotencyKey;
+        this.requestHash = requestHash;
+        this.responseStatus = responseStatus;
+        this.responseBody = responseBody;
+    }
+
+    public String getRequestHash() {
+        return requestHash;
+    }
+
+    public Integer getResponseStatus() {
+        return responseStatus;
+    }
+
+    public String getResponseBody() {
+        return responseBody;
+    }
 }
