@@ -1,6 +1,6 @@
-# Contrato HTTP planejado
+# Contrato HTTP acordado
 
-Prefixo: `/api/v1`. JSON em todas as operações. Os caminhos e formatos abaixo são a especificação acordada para implementação; ainda não estão disponíveis no código.
+Prefixo: `/api/v1`. JSON em todas as operações. A criação de conta (`POST /api/v1/accounts`) está implementada. Os demais endpoints abaixo permanecem planejados; os caminhos e formatos documentados continuam sendo a especificação acordada.
 
 Valores monetários são enviados e retornados como decimais com no máximo duas casas. A implementação usará `BigDecimal` e `NUMERIC(19,2)`. As datas do extrato são `YYYY-MM-DD`; o intervalo inclui ambos os dias no fuso `America/Sao_Paulo`.
 
@@ -38,6 +38,6 @@ Formato comum: `{ "code": "...", "message": "..." }`. A mensagem não revela sal
 | `409` | `ACCOUNT_CONFLICT` | CPF/CNPJ já associado a uma conta; mensagem genérica para não confirmar se o documento está cadastrado. |
 | `409` | `IDEMPOTENCY_CONFLICT` | Chave idempotente reutilizada com outro conteúdo. |
 | `422` | `INSUFFICIENT_FUNDS` | Saldo não cobre saque ou transferência; sem devolver saldo atual. |
-| `500` | `INTERNAL_ERROR` | Falha técnica inesperada; resposta genérica, detalhes apenas em logs internos protegidos. |
+| `500` | `INTERNAL_ERROR` | Falha técnica inesperada; `{ "code": "INTERNAL_ERROR", "message": "Ocorreu um erro interno." }`. |
 
 A API não retorna `503` neste contrato: falhas técnicas, inclusive indisponibilidade do banco, recebem resposta genérica `500`. Erros de validação são rejeitados antes da transação; regras dependentes do saldo e existência da conta são verificadas dentro da transação, depois dos locks.
