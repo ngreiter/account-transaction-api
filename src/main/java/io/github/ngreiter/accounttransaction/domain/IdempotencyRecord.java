@@ -56,6 +56,12 @@ public class IdempotencyRecord {
         this.responseBody = responseBody;
     }
 
+    public IdempotencyRecord(String scope, String idempotencyKey, String requestHash,
+            FinancialTransaction financialTransaction, Integer responseStatus, String responseBody) {
+        this(scope, idempotencyKey, requestHash, responseStatus, responseBody);
+        this.financialTransaction = financialTransaction;
+    }
+
     public String getRequestHash() {
         return requestHash;
     }

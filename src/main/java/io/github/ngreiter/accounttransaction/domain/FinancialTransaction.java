@@ -40,4 +40,13 @@ public class FinancialTransaction {
 
     protected FinancialTransaction() {
     }
+
+    public FinancialTransaction(TransactionType transactionType, BigDecimal amount) {
+        this.transactionType = transactionType;
+        this.amount = amount;
+    }
+
+    public UUID getId() {
+        return id;
+    }
 }

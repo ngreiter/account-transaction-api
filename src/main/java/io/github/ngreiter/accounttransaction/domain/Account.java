@@ -46,6 +46,10 @@ public class Account {
         return balance;
     }
 
+    public void setBalance(BigDecimal balance) {
+        this.balance = balance;
+    }
+
     public Instant getCreatedAt() {
         return createdAt;
     }

@@ -54,4 +54,19 @@ public class AccountTransaction {
 
     protected AccountTransaction() {
     }
+
+    public AccountTransaction(Account account, FinancialTransaction financialTransaction, MovementType movementType,
+            BigDecimal amount, BigDecimal balanceBefore, BigDecimal balanceAfter, String description) {
+        this.account = account;
+        this.financialTransaction = financialTransaction;
+        this.movementType = movementType;
+        this.amount = amount;
+        this.balanceBefore = balanceBefore;
+        this.balanceAfter = balanceAfter;
+        this.description = description;
+    }
+
+    public Instant getPostedAt() {
+        return postedAt;
+    }
 }
