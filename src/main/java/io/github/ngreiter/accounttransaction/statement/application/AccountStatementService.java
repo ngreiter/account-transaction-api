@@ -29,7 +29,6 @@ import io.github.ngreiter.accounttransaction.statement.api.StatementResponse;
 public class AccountStatementService {
 
     private static final ZoneId BUSINESS_ZONE = ZoneId.of("America/Sao_Paulo");
-    private static final Pattern ACCOUNT_NUMBER_PATTERN = Pattern.compile("[0-9]{8}-[0-9]");
     private static final Pattern DATE_PATTERN = Pattern.compile("[0-9]{4}-[0-9]{2}-[0-9]{2}");
 
     private final AccountRepository accountRepository;
@@ -44,7 +43,6 @@ public class AccountStatementService {
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public StatementResponse getStatement(String accountNumber, String fromText, String toText,
             String pageText, String sizeText) {
-        validateAccountNumber(accountNumber);
         LocalDate from = parseDate(fromText, "from");
         LocalDate to = parseDate(toText, "to");
         if (from.isAfter(to)) {
@@ -129,23 +127,4 @@ public class AccountStatementService {
         }
     }
 
-    private void validateAccountNumber(String accountNumber) {
-        if (accountNumber == null || !ACCOUNT_NUMBER_PATTERN.matcher(accountNumber).matches()) {
-            throw new IllegalArgumentException("Número de conta inválido.");
-        }
-        String base = accountNumber.substring(0, 8);
-        int sum = 0;
-        int weight = 2;
-        for (int i = base.length() - 1; i >= 0; i--) {
-            sum += (base.charAt(i) - '0') * weight;
-            weight = weight == 9 ? 2 : weight + 1;
-        }
-        int expectedDigit = 11 - sum % 11;
-        if (expectedDigit >= 10) {
-            expectedDigit = 0;
-        }
-        if (accountNumber.charAt(9) - '0' != expectedDigit) {
-            throw new IllegalArgumentException("Número de conta inválido.");
-        }
-    }
 }

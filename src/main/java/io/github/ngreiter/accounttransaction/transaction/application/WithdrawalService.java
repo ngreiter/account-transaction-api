@@ -17,6 +17,7 @@ import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 
 import io.github.ngreiter.accounttransaction.domain.Account;
+import io.github.ngreiter.accounttransaction.domain.AccountNumber;
 import io.github.ngreiter.accounttransaction.domain.AccountTransaction;
 import io.github.ngreiter.accounttransaction.domain.FinancialTransaction;
 import io.github.ngreiter.accounttransaction.domain.IdempotencyRecord;
@@ -151,31 +152,13 @@ public class WithdrawalService {
         if (request == null) {
             throw new IllegalArgumentException("Dados do saque inválidos.");
         }
-        if (!hasValidAccountNumber(request.accountNumber())) {
+        if (!AccountNumber.isValid(request.accountNumber())) {
             throw new IllegalArgumentException("Número de conta inválido.");
         }
         if (request.amount() == null || request.amount().signum() <= 0 || request.amount().scale() > 2
                 || request.amount().precision() - request.amount().scale() > 17) {
             throw new IllegalArgumentException("Valor do saque inválido.");
         }
-    }
-
-    private boolean hasValidAccountNumber(String accountNumber) {
-        if (accountNumber == null || !accountNumber.matches("[0-9]{8}-[0-9]")) {
-            return false;
-        }
-        String base = accountNumber.substring(0, 8);
-        int sum = 0;
-        int weight = 2;
-        for (int i = base.length() - 1; i >= 0; i--) {
-            sum += (base.charAt(i) - '0') * weight;
-            weight = weight == 9 ? 2 : weight + 1;
-        }
-        int expectedDigit = 11 - sum % 11;
-        if (expectedDigit >= 10) {
-            expectedDigit = 0;
-        }
-        return accountNumber.charAt(9) - '0' == expectedDigit;
     }
 
     private String hash(String accountNumber, BigDecimal amount, String description) {

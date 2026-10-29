@@ -17,6 +17,7 @@ import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 
 import io.github.ngreiter.accounttransaction.domain.Account;
+import io.github.ngreiter.accounttransaction.domain.AccountNumber;
 import io.github.ngreiter.accounttransaction.domain.AccountTransaction;
 import io.github.ngreiter.accounttransaction.domain.FinancialTransaction;
 import io.github.ngreiter.accounttransaction.domain.IdempotencyRecord;
@@ -145,6 +146,9 @@ public class DepositService {
         }
         if (request == null) {
             throw new IllegalArgumentException("Dados do depósito inválidos.");
+        }
+        if (!AccountNumber.isValid(request.accountNumber())) {
+            throw new IllegalArgumentException("Número de conta inválido.");
         }
         if (request.amount() == null || request.amount().signum() <= 0 || request.amount().scale() > 2
                 || request.amount().precision() - request.amount().scale() > 17) {
