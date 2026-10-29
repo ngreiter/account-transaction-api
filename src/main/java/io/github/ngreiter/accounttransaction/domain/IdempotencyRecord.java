@@ -28,7 +28,7 @@ public class IdempotencyRecord {
     @Column(name = "idempotency_key", length = 255, nullable = false, unique = true)
     private String idempotencyKey;
 
-    @Column(name = "request_hash", length = 64, nullable = false, columnDefinition = "CHAR(64)")
+    @Column(name = "request_hash", length = 64, nullable = false)
     private String requestHash;
 
     @ManyToOne(fetch = FetchType.LAZY)
