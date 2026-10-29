@@ -14,6 +14,8 @@ import java.util.regex.Pattern;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Transactional;
 
 import io.github.ngreiter.accounttransaction.account.application.AccountNotFoundException;
 import io.github.ngreiter.accounttransaction.domain.MovementType;
@@ -39,6 +41,7 @@ public class AccountStatementService {
         this.accountTransactionRepository = accountTransactionRepository;
     }
 
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public StatementResponse getStatement(String accountNumber, String fromText, String toText,
             String pageText, String sizeText) {
         validateAccountNumber(accountNumber);
