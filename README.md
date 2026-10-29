@@ -16,7 +16,6 @@ API REST para o desafio técnico de contas correntes: abertura de conta, depósi
 
 - [Decisões e arquitetura](docs/DECISOES_E_ARQUITETURA.md): escopo, regras, modelo de dados, concorrência, idempotência e privacidade.
 - [Contrato da API](docs/CONTRATO_API.md): endpoints, requests, responses e erros implementados.
-- [Roteiro de apresentação](docs/APRESENTACAO.md): resumo da solução e pontos para explicar na entrevista.
 
 ## Ambiente de desenvolvimento
 
