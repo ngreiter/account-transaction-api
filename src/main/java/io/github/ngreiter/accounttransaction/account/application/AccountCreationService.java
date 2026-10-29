@@ -96,10 +96,10 @@ public class AccountCreationService {
         }
 
         Account account = new Account(accountNumber, document);
-        accountRepository.saveAndFlush(account);
-        entityManager.refresh(account);
+        Account persistedAccount = accountRepository.saveAndFlush(account);
+        entityManager.refresh(persistedAccount);
         AccountCreationResponseSnapshotSerializer.Snapshot snapshot = responseSerializer.created(
-                account.getAccountNumber(), BigDecimal.ZERO.setScale(2), account.getCreatedAt());
+                persistedAccount.getAccountNumber(), BigDecimal.ZERO.setScale(2), persistedAccount.getCreatedAt());
         idempotencySupport.save(SCOPE, idempotencyKey, requestHash, snapshot.status(), snapshot.body());
         return AccountCreationResult.succeeded(snapshot.body());
     }
