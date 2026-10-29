@@ -99,7 +99,7 @@ public class WithdrawalService {
         Account account = lockedAccounts.getFirst();
         BigDecimal balanceBefore = account.getBalance();
         if (balanceBefore.compareTo(amount) < 0) {
-            return persistResult(idempotencyKey, requestHash, HttpStatus.UNPROCESSABLE_ENTITY.value(),
+            return persistResult(idempotencyKey, requestHash, HttpStatus.UNPROCESSABLE_CONTENT.value(),
                     new ApiError("INSUFFICIENT_FUNDS", "Saldo insuficiente para concluir a operação."), null);
         }
 
