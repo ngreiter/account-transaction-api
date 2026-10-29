@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import io.github.ngreiter.accounttransaction.account.application.AccountCreationException;
 import io.github.ngreiter.accounttransaction.account.application.AccountNotFoundException;
+import io.github.ngreiter.accounttransaction.transaction.application.TransactionApplicationException;
 
 @RestControllerAdvice
 public class AccountApiExceptionHandler {
@@ -24,6 +25,16 @@ public class AccountApiExceptionHandler {
     ResponseEntity<String> handleAccountCreation(AccountCreationException exception) {
         HttpStatus status = switch (exception.error()) {
             case ACCOUNT_CONFLICT, IDEMPOTENCY_CONFLICT -> HttpStatus.CONFLICT;
+        };
+        return ResponseEntity.status(status).contentType(MediaType.APPLICATION_JSON).body(exception.responseBody());
+    }
+
+    @ExceptionHandler(TransactionApplicationException.class)
+    ResponseEntity<String> handleTransaction(TransactionApplicationException exception) {
+        HttpStatus status = switch (exception.error()) {
+            case RESOURCE_NOT_FOUND -> HttpStatus.NOT_FOUND;
+            case IDEMPOTENCY_CONFLICT -> HttpStatus.CONFLICT;
+            case INSUFFICIENT_FUNDS -> HttpStatus.UNPROCESSABLE_CONTENT;
         };
         return ResponseEntity.status(status).contentType(MediaType.APPLICATION_JSON).body(exception.responseBody());
     }

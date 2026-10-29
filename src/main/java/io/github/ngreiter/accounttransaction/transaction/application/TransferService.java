@@ -12,12 +12,9 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import tools.jackson.core.JacksonException;
-import tools.jackson.databind.ObjectMapper;
 
 import io.github.ngreiter.accounttransaction.domain.Account;
 import io.github.ngreiter.accounttransaction.domain.AccountNumber;
@@ -30,9 +27,6 @@ import io.github.ngreiter.accounttransaction.persistence.AccountRepository;
 import io.github.ngreiter.accounttransaction.persistence.AccountTransactionRepository;
 import io.github.ngreiter.accounttransaction.persistence.FinancialTransactionRepository;
 import io.github.ngreiter.accounttransaction.persistence.IdempotencyRecordRepository;
-import io.github.ngreiter.accounttransaction.shared.api.ApiError;
-import io.github.ngreiter.accounttransaction.transaction.api.TransferRequest;
-import io.github.ngreiter.accounttransaction.transaction.api.TransferResponse;
 import jakarta.persistence.EntityManager;
 
 @Service
@@ -47,45 +41,55 @@ public class TransferService {
     private final IdempotencyRecordRepository idempotencyRecordRepository;
     private final TransactionTemplate transactionTemplate;
     private final EntityManager entityManager;
-    private final ObjectMapper objectMapper;
+    private final TransactionResponseSnapshotSerializer responseSerializer;
 
     public TransferService(AccountRepository accountRepository,
             FinancialTransactionRepository financialTransactionRepository,
             AccountTransactionRepository accountTransactionRepository,
             IdempotencyRecordRepository idempotencyRecordRepository,
-            TransactionTemplate transactionTemplate, EntityManager entityManager, ObjectMapper objectMapper) {
+            TransactionTemplate transactionTemplate, EntityManager entityManager,
+            TransactionResponseSnapshotSerializer responseSerializer) {
         this.accountRepository = accountRepository;
         this.financialTransactionRepository = financialTransactionRepository;
         this.accountTransactionRepository = accountTransactionRepository;
         this.idempotencyRecordRepository = idempotencyRecordRepository;
         this.transactionTemplate = transactionTemplate;
         this.entityManager = entityManager;
-        this.objectMapper = objectMapper;
+        this.responseSerializer = responseSerializer;
     }
 
-    public TransferResult transfer(String idempotencyKey, TransferRequest request) {
-        validate(idempotencyKey, request);
-        BigDecimal amount = request.amount().setScale(2, RoundingMode.UNNECESSARY);
-        String requestHash = hash(request, amount);
+    public TransferResult transfer(String idempotencyKey, TransferCommand command) {
+        validate(idempotencyKey, command);
+        BigDecimal amount = command.amount().setScale(2, RoundingMode.UNNECESSARY);
+        String requestHash = hash(command, amount);
+        TransferResult result = null;
 
         for (int attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
             try {
-                return transactionTemplate.execute(status -> transferInTransaction(
-                        idempotencyKey, request, amount, requestHash));
+                result = transactionTemplate.execute(status -> transferInTransaction(
+                        idempotencyKey, command, amount, requestHash));
+                break;
             } catch (DataIntegrityViolationException exception) {
                 var saved = idempotencyRecordRepository.findByIdempotencyKey(idempotencyKey);
                 if (saved.isPresent()) {
-                    return replayOrConflict(saved.get(), requestHash);
+                    result = replayOrConflict(saved.get(), requestHash);
+                    break;
                 }
                 if (attempt == MAX_ATTEMPTS - 1) {
                     throw exception;
                 }
             }
         }
-        throw new IllegalStateException("Não foi possível concluir a transferência.");
+        if (result == null) {
+            throw new IllegalStateException("N\u00e3o foi poss\u00edvel concluir a transfer\u00eancia.");
+        }
+        if (result.error() != null) {
+            throw new TransactionApplicationException(result.error(), result.responseBody());
+        }
+        return result;
     }
 
-    private TransferResult transferInTransaction(String idempotencyKey, TransferRequest request,
+    private TransferResult transferInTransaction(String idempotencyKey, TransferCommand command,
             BigDecimal amount, String requestHash) {
         var existing = idempotencyRecordRepository.findByIdempotencyKey(idempotencyKey);
         if (existing.isPresent()) {
@@ -94,20 +98,18 @@ public class TransferService {
 
         List<Account> lockedAccounts = accountRepository
                 .findAllByAccountNumberInOrderByAccountNumberForUpdate(
-                        List.of(request.sourceAccountNumber(), request.destinationAccountNumber()));
+                        List.of(command.sourceAccountNumber(), command.destinationAccountNumber()));
         Map<String, Account> accountsByNumber = lockedAccounts.stream()
                 .collect(Collectors.toMap(Account::getAccountNumber, Function.identity()));
-        Account source = accountsByNumber.get(request.sourceAccountNumber());
-        Account destination = accountsByNumber.get(request.destinationAccountNumber());
+        Account source = accountsByNumber.get(command.sourceAccountNumber());
+        Account destination = accountsByNumber.get(command.destinationAccountNumber());
         if (source == null || destination == null) {
-            return persistResult(idempotencyKey, requestHash, HttpStatus.NOT_FOUND.value(),
-                    new ApiError("RESOURCE_NOT_FOUND", "Recurso não encontrado."), null);
+            return persistError(idempotencyKey, requestHash, TransactionError.RESOURCE_NOT_FOUND);
         }
 
         BigDecimal sourceBalanceBefore = source.getBalance();
         if (sourceBalanceBefore.compareTo(amount) < 0) {
-            return persistResult(idempotencyKey, requestHash, HttpStatus.UNPROCESSABLE_CONTENT.value(),
-                    new ApiError("INSUFFICIENT_FUNDS", "Saldo insuficiente para concluir a operação."), null);
+            return persistError(idempotencyKey, requestHash, TransactionError.INSUFFICIENT_FUNDS);
         }
 
         BigDecimal destinationBalanceBefore = destination.getBalance();
@@ -120,70 +122,69 @@ public class TransferService {
                 .saveAndFlush(new FinancialTransaction(TransactionType.TRANSFER, amount));
         AccountTransaction debit = accountTransactionRepository.saveAndFlush(new AccountTransaction(source,
                 financialTransaction, MovementType.DEBIT, amount, sourceBalanceBefore, sourceBalanceAfter,
-                request.description()));
+                command.description()));
         AccountTransaction credit = accountTransactionRepository.saveAndFlush(new AccountTransaction(destination,
                 financialTransaction, MovementType.CREDIT, amount, destinationBalanceBefore, destinationBalanceAfter,
-                request.description()));
+                command.description()));
         entityManager.refresh(debit);
         entityManager.refresh(credit);
 
-        TransferResult response = result(HttpStatus.CREATED.value(),
-                new TransferResponse(financialTransaction.getId(), TransactionType.TRANSFER.name(), amount,
-                        "SUCCEEDED", debit.getPostedAt()));
+        TransactionResponseSnapshotSerializer.Snapshot snapshot = responseSerializer.created(
+                financialTransaction.getId(), TransactionType.TRANSFER.name(), amount,
+                "SUCCEEDED", debit.getPostedAt());
         idempotencyRecordRepository.save(new IdempotencyRecord(SCOPE, idempotencyKey, requestHash,
-                financialTransaction, response.status(), response.responseBody()));
-        return response;
+                financialTransaction, snapshot.status(), snapshot.body()));
+        return TransferResult.succeeded(snapshot.body());
     }
 
     private TransferResult replayOrConflict(IdempotencyRecord record, String requestHash) {
         if (!record.getRequestHash().equals(requestHash)) {
-            return result(HttpStatus.CONFLICT.value(), new ApiError("IDEMPOTENCY_CONFLICT",
-                    "A chave de idempotência não pode ser reutilizada com dados diferentes."));
+            return rejected(TransactionError.IDEMPOTENCY_CONFLICT);
         }
-        return new TransferResult(record.getResponseStatus(), record.getResponseBody());
+        TransactionError storedError = TransactionError.fromStoredStatus(record.getResponseStatus());
+        if (storedError != null) {
+            return TransferResult.rejected(storedError, record.getResponseBody());
+        }
+        return TransferResult.replayed(record.getResponseStatus(), record.getResponseBody());
     }
 
-    private TransferResult persistResult(String idempotencyKey, String requestHash, int status, Object body,
-            FinancialTransaction financialTransaction) {
-        TransferResult result = result(status, body);
+    private TransferResult rejected(TransactionError error) {
+        TransactionResponseSnapshotSerializer.Snapshot snapshot = responseSerializer.rejected(error);
+        return TransferResult.rejected(error, snapshot.body());
+    }
+
+    private TransferResult persistError(String idempotencyKey, String requestHash, TransactionError error) {
+        TransactionResponseSnapshotSerializer.Snapshot snapshot = responseSerializer.rejected(error);
         idempotencyRecordRepository.save(new IdempotencyRecord(SCOPE, idempotencyKey, requestHash,
-                financialTransaction, result.status(), result.responseBody()));
-        return result;
+                snapshot.status(), snapshot.body()));
+        return TransferResult.rejected(error, snapshot.body());
     }
 
-    private TransferResult result(int status, Object body) {
-        try {
-            return new TransferResult(status, objectMapper.writeValueAsString(body));
-        } catch (JacksonException exception) {
-            throw new IllegalStateException("Não foi possível serializar a resposta.", exception);
-        }
-    }
-
-    private void validate(String idempotencyKey, TransferRequest request) {
+    private void validate(String idempotencyKey, TransferCommand command) {
         if (idempotencyKey == null || idempotencyKey.isBlank() || idempotencyKey.length() > 255) {
             throw new IllegalArgumentException("Idempotency-Key inválida.");
         }
-        if (request == null) {
+        if (command == null) {
             throw new IllegalArgumentException("Dados da transferência inválidos.");
         }
-        if (request.sourceAccountNumber() == null || request.destinationAccountNumber() == null
-                || request.sourceAccountNumber().equals(request.destinationAccountNumber())) {
+        if (command.sourceAccountNumber() == null || command.destinationAccountNumber() == null
+                || command.sourceAccountNumber().equals(command.destinationAccountNumber())) {
             throw new IllegalArgumentException("As contas de origem e destino devem ser diferentes.");
         }
-        if (!AccountNumber.isValid(request.sourceAccountNumber())
-                || !AccountNumber.isValid(request.destinationAccountNumber())) {
+        if (!AccountNumber.isValid(command.sourceAccountNumber())
+                || !AccountNumber.isValid(command.destinationAccountNumber())) {
             throw new IllegalArgumentException("Número de conta inválido.");
         }
-        if (request.amount() == null || request.amount().signum() <= 0 || request.amount().scale() > 2
-                || request.amount().precision() - request.amount().scale() > 17) {
+        if (command.amount() == null || command.amount().signum() <= 0 || command.amount().scale() > 2
+                || command.amount().precision() - command.amount().scale() > 17) {
             throw new IllegalArgumentException("Valor da transferência inválido.");
         }
     }
 
-    private String hash(TransferRequest request, BigDecimal amount) {
-        String canonical = SCOPE + "\n" + request.sourceAccountNumber() + "\n"
-                + request.destinationAccountNumber() + "\n" + amount.toPlainString() + "\n"
-                + (request.description() == null ? "<null>" : "<value>" + request.description());
+    private String hash(TransferCommand command, BigDecimal amount) {
+        String canonical = SCOPE + "\n" + command.sourceAccountNumber() + "\n"
+                + command.destinationAccountNumber() + "\n" + amount.toPlainString() + "\n"
+                + (command.description() == null ? "<null>" : "<value>" + command.description());
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256").digest(canonical.getBytes(StandardCharsets.UTF_8));
             return HexFormat.of().formatHex(digest);

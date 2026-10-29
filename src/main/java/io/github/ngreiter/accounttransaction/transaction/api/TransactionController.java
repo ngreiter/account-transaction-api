@@ -1,6 +1,7 @@
 package io.github.ngreiter.accounttransaction.transaction.api;
 
 import org.springframework.http.MediaType;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -11,10 +12,13 @@ import org.springframework.web.bind.annotation.RestController;
 
 import io.github.ngreiter.accounttransaction.transaction.application.DepositResult;
 import io.github.ngreiter.accounttransaction.transaction.application.DepositService;
+import io.github.ngreiter.accounttransaction.transaction.application.DepositCommand;
 import io.github.ngreiter.accounttransaction.transaction.application.TransferResult;
 import io.github.ngreiter.accounttransaction.transaction.application.TransferService;
+import io.github.ngreiter.accounttransaction.transaction.application.TransferCommand;
 import io.github.ngreiter.accounttransaction.transaction.application.WithdrawalResult;
 import io.github.ngreiter.accounttransaction.transaction.application.WithdrawalService;
+import io.github.ngreiter.accounttransaction.transaction.application.WithdrawalCommand;
 import jakarta.validation.Valid;
 
 @RestController
@@ -38,8 +42,10 @@ public class TransactionController {
     public ResponseEntity<String> deposit(
             @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey,
             @Valid @RequestBody DepositRequest request) {
-        DepositResult result = depositService.deposit(idempotencyKey, request);
-        return ResponseEntity.status(result.status()).contentType(MediaType.APPLICATION_JSON).body(result.responseBody());
+        DepositCommand command = new DepositCommand(request.accountNumber(), request.amount(), request.description());
+        DepositResult result = depositService.deposit(idempotencyKey, command);
+        int status = result.replayedStatus() == null ? HttpStatus.CREATED.value() : result.replayedStatus();
+        return ResponseEntity.status(status).contentType(MediaType.APPLICATION_JSON).body(result.responseBody());
     }
 
     @PostMapping(path = "/withdrawals", consumes = MediaType.APPLICATION_JSON_VALUE,
@@ -47,8 +53,10 @@ public class TransactionController {
     public ResponseEntity<String> withdraw(
             @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey,
             @Valid @RequestBody WithdrawalRequest request) {
-        WithdrawalResult result = withdrawalService.withdraw(idempotencyKey, request);
-        return ResponseEntity.status(result.status()).contentType(MediaType.APPLICATION_JSON).body(result.responseBody());
+        WithdrawalCommand command = new WithdrawalCommand(request.accountNumber(), request.amount(), request.description());
+        WithdrawalResult result = withdrawalService.withdraw(idempotencyKey, command);
+        int status = result.replayedStatus() == null ? HttpStatus.CREATED.value() : result.replayedStatus();
+        return ResponseEntity.status(status).contentType(MediaType.APPLICATION_JSON).body(result.responseBody());
     }
 
     @PostMapping(path = "/transfers", consumes = MediaType.APPLICATION_JSON_VALUE,
@@ -56,7 +64,10 @@ public class TransactionController {
     public ResponseEntity<String> transfer(
             @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey,
             @Valid @RequestBody TransferRequest request) {
-        TransferResult result = transferService.transfer(idempotencyKey, request);
-        return ResponseEntity.status(result.status()).contentType(MediaType.APPLICATION_JSON).body(result.responseBody());
+        TransferCommand command = new TransferCommand(request.sourceAccountNumber(), request.destinationAccountNumber(),
+                request.amount(), request.description());
+        TransferResult result = transferService.transfer(idempotencyKey, command);
+        int status = result.replayedStatus() == null ? HttpStatus.CREATED.value() : result.replayedStatus();
+        return ResponseEntity.status(status).contentType(MediaType.APPLICATION_JSON).body(result.responseBody());
     }
 }

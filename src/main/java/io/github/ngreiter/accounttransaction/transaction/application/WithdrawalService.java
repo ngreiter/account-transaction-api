@@ -9,12 +9,9 @@ import java.util.HexFormat;
 import java.util.List;
 
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import tools.jackson.core.JacksonException;
-import tools.jackson.databind.ObjectMapper;
 
 import io.github.ngreiter.accounttransaction.domain.Account;
 import io.github.ngreiter.accounttransaction.domain.AccountNumber;
@@ -27,9 +24,6 @@ import io.github.ngreiter.accounttransaction.persistence.AccountRepository;
 import io.github.ngreiter.accounttransaction.persistence.AccountTransactionRepository;
 import io.github.ngreiter.accounttransaction.persistence.FinancialTransactionRepository;
 import io.github.ngreiter.accounttransaction.persistence.IdempotencyRecordRepository;
-import io.github.ngreiter.accounttransaction.shared.api.ApiError;
-import io.github.ngreiter.accounttransaction.transaction.api.WithdrawalRequest;
-import io.github.ngreiter.accounttransaction.transaction.api.WithdrawalResponse;
 import jakarta.persistence.EntityManager;
 
 @Service
@@ -44,45 +38,55 @@ public class WithdrawalService {
     private final IdempotencyRecordRepository idempotencyRecordRepository;
     private final TransactionTemplate transactionTemplate;
     private final EntityManager entityManager;
-    private final ObjectMapper objectMapper;
+    private final TransactionResponseSnapshotSerializer responseSerializer;
 
     public WithdrawalService(AccountRepository accountRepository,
             FinancialTransactionRepository financialTransactionRepository,
             AccountTransactionRepository accountTransactionRepository,
             IdempotencyRecordRepository idempotencyRecordRepository,
-            TransactionTemplate transactionTemplate, EntityManager entityManager, ObjectMapper objectMapper) {
+            TransactionTemplate transactionTemplate, EntityManager entityManager,
+            TransactionResponseSnapshotSerializer responseSerializer) {
         this.accountRepository = accountRepository;
         this.financialTransactionRepository = financialTransactionRepository;
         this.accountTransactionRepository = accountTransactionRepository;
         this.idempotencyRecordRepository = idempotencyRecordRepository;
         this.transactionTemplate = transactionTemplate;
         this.entityManager = entityManager;
-        this.objectMapper = objectMapper;
+        this.responseSerializer = responseSerializer;
     }
 
-    public WithdrawalResult withdraw(String idempotencyKey, WithdrawalRequest request) {
-        validate(idempotencyKey, request);
-        BigDecimal amount = request.amount().setScale(2, RoundingMode.UNNECESSARY);
-        String requestHash = hash(request.accountNumber(), amount, request.description());
+    public WithdrawalResult withdraw(String idempotencyKey, WithdrawalCommand command) {
+        validate(idempotencyKey, command);
+        BigDecimal amount = command.amount().setScale(2, RoundingMode.UNNECESSARY);
+        String requestHash = hash(command.accountNumber(), amount, command.description());
+        WithdrawalResult result = null;
 
         for (int attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
             try {
-                return transactionTemplate.execute(status -> withdrawInTransaction(
-                        idempotencyKey, request, amount, requestHash));
+                result = transactionTemplate.execute(status -> withdrawInTransaction(
+                        idempotencyKey, command, amount, requestHash));
+                break;
             } catch (DataIntegrityViolationException exception) {
                 var saved = idempotencyRecordRepository.findByIdempotencyKey(idempotencyKey);
                 if (saved.isPresent()) {
-                    return replayOrConflict(saved.get(), requestHash);
+                    result = replayOrConflict(saved.get(), requestHash);
+                    break;
                 }
                 if (attempt == MAX_ATTEMPTS - 1) {
                     throw exception;
                 }
             }
         }
-        throw new IllegalStateException("Não foi possível concluir o saque.");
+        if (result == null) {
+            throw new IllegalStateException("N\u00e3o foi poss\u00edvel concluir o saque.");
+        }
+        if (result.error() != null) {
+            throw new TransactionApplicationException(result.error(), result.responseBody());
+        }
+        return result;
     }
 
-    private WithdrawalResult withdrawInTransaction(String idempotencyKey, WithdrawalRequest request,
+    private WithdrawalResult withdrawInTransaction(String idempotencyKey, WithdrawalCommand command,
             BigDecimal amount, String requestHash) {
         var existing = idempotencyRecordRepository.findByIdempotencyKey(idempotencyKey);
         if (existing.isPresent()) {
@@ -90,17 +94,15 @@ public class WithdrawalService {
         }
 
         List<Account> lockedAccounts = accountRepository
-                .findAllByAccountNumberInOrderByAccountNumberForUpdate(List.of(request.accountNumber()));
+                .findAllByAccountNumberInOrderByAccountNumberForUpdate(List.of(command.accountNumber()));
         if (lockedAccounts.isEmpty()) {
-            return persistResult(idempotencyKey, requestHash, HttpStatus.NOT_FOUND.value(),
-                    new ApiError("RESOURCE_NOT_FOUND", "Recurso não encontrado."), null);
+            return persistError(idempotencyKey, requestHash, TransactionError.RESOURCE_NOT_FOUND);
         }
 
         Account account = lockedAccounts.getFirst();
         BigDecimal balanceBefore = account.getBalance();
         if (balanceBefore.compareTo(amount) < 0) {
-            return persistResult(idempotencyKey, requestHash, HttpStatus.UNPROCESSABLE_CONTENT.value(),
-                    new ApiError("INSUFFICIENT_FUNDS", "Saldo insuficiente para concluir a operação."), null);
+            return persistError(idempotencyKey, requestHash, TransactionError.INSUFFICIENT_FUNDS);
         }
 
         BigDecimal balanceAfter = balanceBefore.subtract(amount);
@@ -110,53 +112,52 @@ public class WithdrawalService {
                 .saveAndFlush(new FinancialTransaction(TransactionType.WITHDRAWAL, amount));
         AccountTransaction accountTransaction = accountTransactionRepository.saveAndFlush(
                 new AccountTransaction(account, financialTransaction, MovementType.DEBIT,
-                        amount, balanceBefore, balanceAfter, request.description()));
+                        amount, balanceBefore, balanceAfter, command.description()));
         entityManager.refresh(accountTransaction);
 
-        WithdrawalResult response = result(HttpStatus.CREATED.value(),
-                new WithdrawalResponse(financialTransaction.getId(), TransactionType.WITHDRAWAL.name(), amount,
-                        "SUCCEEDED", accountTransaction.getPostedAt()));
+        TransactionResponseSnapshotSerializer.Snapshot snapshot = responseSerializer.created(
+                financialTransaction.getId(), TransactionType.WITHDRAWAL.name(), amount,
+                "SUCCEEDED", accountTransaction.getPostedAt());
         idempotencyRecordRepository.save(new IdempotencyRecord(SCOPE, idempotencyKey, requestHash,
-                financialTransaction, response.status(), response.responseBody()));
-        return response;
+                financialTransaction, snapshot.status(), snapshot.body()));
+        return WithdrawalResult.succeeded(snapshot.body());
     }
 
     private WithdrawalResult replayOrConflict(IdempotencyRecord record, String requestHash) {
         if (!record.getRequestHash().equals(requestHash)) {
-            return result(HttpStatus.CONFLICT.value(), new ApiError("IDEMPOTENCY_CONFLICT",
-                    "A chave de idempotência não pode ser reutilizada com dados diferentes."));
+            return rejected(TransactionError.IDEMPOTENCY_CONFLICT);
         }
-        return new WithdrawalResult(record.getResponseStatus(), record.getResponseBody());
+        TransactionError storedError = TransactionError.fromStoredStatus(record.getResponseStatus());
+        if (storedError != null) {
+            return WithdrawalResult.rejected(storedError, record.getResponseBody());
+        }
+        return WithdrawalResult.replayed(record.getResponseStatus(), record.getResponseBody());
     }
 
-    private WithdrawalResult persistResult(String idempotencyKey, String requestHash, int status, Object body,
-            FinancialTransaction financialTransaction) {
-        WithdrawalResult result = result(status, body);
+    private WithdrawalResult rejected(TransactionError error) {
+        TransactionResponseSnapshotSerializer.Snapshot snapshot = responseSerializer.rejected(error);
+        return WithdrawalResult.rejected(error, snapshot.body());
+    }
+
+    private WithdrawalResult persistError(String idempotencyKey, String requestHash, TransactionError error) {
+        TransactionResponseSnapshotSerializer.Snapshot snapshot = responseSerializer.rejected(error);
         idempotencyRecordRepository.save(new IdempotencyRecord(SCOPE, idempotencyKey, requestHash,
-                financialTransaction, result.status(), result.responseBody()));
-        return result;
+                snapshot.status(), snapshot.body()));
+        return WithdrawalResult.rejected(error, snapshot.body());
     }
 
-    private WithdrawalResult result(int status, Object body) {
-        try {
-            return new WithdrawalResult(status, objectMapper.writeValueAsString(body));
-        } catch (JacksonException exception) {
-            throw new IllegalStateException("Não foi possível serializar a resposta.", exception);
-        }
-    }
-
-    private void validate(String idempotencyKey, WithdrawalRequest request) {
+    private void validate(String idempotencyKey, WithdrawalCommand command) {
         if (idempotencyKey == null || idempotencyKey.isBlank() || idempotencyKey.length() > 255) {
             throw new IllegalArgumentException("Idempotency-Key inválida.");
         }
-        if (request == null) {
+        if (command == null) {
             throw new IllegalArgumentException("Dados do saque inválidos.");
         }
-        if (!AccountNumber.isValid(request.accountNumber())) {
+        if (!AccountNumber.isValid(command.accountNumber())) {
             throw new IllegalArgumentException("Número de conta inválido.");
         }
-        if (request.amount() == null || request.amount().signum() <= 0 || request.amount().scale() > 2
-                || request.amount().precision() - request.amount().scale() > 17) {
+        if (command.amount() == null || command.amount().signum() <= 0 || command.amount().scale() > 2
+                || command.amount().precision() - command.amount().scale() > 17) {
             throw new IllegalArgumentException("Valor do saque inválido.");
         }
     }
