@@ -2,7 +2,7 @@
 
 ## 1. Objetivo e estado
 
-A aplicação implementa uma API REST para abertura e consulta de contas correntes, depósito, saque, transferência e consulta de extrato. As decisões deste documento descrevem o código atual. A implementação está codificada, mas ainda aguarda testes unitários e funcionais; este documento não representa validação por testes.
+A aplicação implementa uma API REST para abertura e consulta de contas correntes, depósito, saque, transferência e consulta de extrato. As decisões deste documento descrevem o código atual. O projeto contém testes unitários e de controller; os testes de integração PostgreSQL também estão implementados, mas ainda precisam ser executados contra um banco configurado. Não há teste de carga nem medição de capacidade máxima.
 
 ## 2. Tecnologias e limites
 
@@ -88,8 +88,20 @@ CPF é dado pessoal; CNPJ também pode identificar pessoa natural em certos cont
 
 Como não existe autenticação/autorização, a implementação é demonstrativa. Uso com dados reais depende de autenticação, autorização por titularidade, gestão de segredos, controles de acesso, política de retenção e demais requisitos operacionais e legais.
 
-## 10. Estado de validação
+## 10. Testes e limites de validação
 
-Os fluxos descritos estão codificados. Ainda aguardam testes unitários e funcionais; não se afirma aqui que contrato, replay idempotente, concorrência ou persistência foram validados pela execução desses testes.
+O projeto inclui testes unitários dos serviços e classes de domínio, além de testes de controller com MockMvc e comparação de respostas com fixtures JSON. Os testes de integração de `PostgresIntegrationTest` usam os serviços e repositórios reais com PostgreSQL e cobrem oito cenários:
+
+- abertura e consulta de conta, incluindo rejeição de CPF e CNPJ duplicados;
+- depósito e saque com conferência de saldo e lançamentos persistidos;
+- transferência com saldos atualizados e débito/crédito persistidos;
+- replay idempotente sem duplicar efeitos e conflito ao reutilizar chave com outro request;
+- extrato por período, com saldos, ordem cronológica e paginação;
+- dois saques simultâneos de R$ 80 contra saldo de R$ 100, esperando uma operação efetivada e outra rejeitada;
+- rollback de saldos, lançamentos, operação financeira e registro de idempotência quando uma falha é provocada na gravação do lançamento de destino.
+
+A classe de integração exige `DB_URL`, `DB_USERNAME` e `DB_PASSWORD` apontando para um PostgreSQL de teste isolado. Ela limpa os dados próprios e cria/remove um trigger e uma função temporários para o cenário de rollback. Execute com `./mvnw test -Dtest=PostgresIntegrationTest` (ou `mvnw.cmd` no Windows). Se `DB_URL` não estiver configurada, a classe é ignorada. Os cenários estão implementados, mas não foram executados contra PostgreSQL neste ambiente; portanto, a persistência e a concorrência ainda dependem dessa execução para validação funcional.
+
+Não foram realizados testes de carga, benchmark ou medição de volume máximo de operações por segundo. Os testes de concorrência verificam a regra descrita no cenário, mas não estabelecem capacidade ou desempenho sob carga.
 
 O README contém os requisitos de ambiente e o comando de inicialização. Referências: [LGPD — Lei 13.709/2018](https://www.planalto.gov.br/ccivil_03/_ato2015-2018/2018/lei/l13709.htm), [tipos numéricos do PostgreSQL](https://www.postgresql.org/docs/current/datatype-numeric.html), [Java BigDecimal](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/math/BigDecimal.html) e [consultas do Spring Data JPA](https://docs.spring.io/spring-data/jpa/reference/jpa/query-methods.html).

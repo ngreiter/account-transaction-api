@@ -1,6 +1,6 @@
 # Contrato HTTP implementado
 
-Prefixo: `/api/v1`. Os endpoints desta tabela estão codificados. A implementação ainda aguarda testes unitários e funcionais. As respostas usam JSON; valores monetários nas respostas são strings decimais com duas casas.
+Prefixo: `/api/v1`. Os endpoints desta tabela estão implementados. As respostas usam JSON; valores monetários nas respostas são strings decimais com duas casas.
 
 | Método e endpoint | Request | Sucesso |
 |---|---|---|
@@ -43,3 +43,9 @@ Erros JSON têm o formato { "code": "...", "message": "..." }.
 | 500 | INTERNAL_ERROR | Erro inesperado. | Ocorreu um erro interno. |
 
 A API não define resposta 503; falhas técnicas inesperadas são mapeadas para o erro genérico 500.
+
+## Estado dos testes
+
+O projeto contém testes unitários dos serviços e testes de controller com MockMvc, incluindo comparação de respostas com fixtures JSON. Também há testes de integração em `PostgresIntegrationTest`, que exercitam persistência real no PostgreSQL: criação/consulta e duplicidade de CPF/CNPJ; depósito, saque e transferência com verificação de saldos e lançamentos; replay/conflito de idempotência; extrato por período, ordenação e paginação; concorrência entre dois saques de R$ 80 com saldo inicial de R$ 100; e rollback da transferência após falha ao gravar o lançamento de destino.
+
+Para executar essa classe, configure `DB_URL`, `DB_USERNAME` e `DB_PASSWORD` para um PostgreSQL de teste isolado e rode `./mvnw test -Dtest=PostgresIntegrationTest` (no Windows, `mvnw.cmd`). A classe é ignorada quando `DB_URL` não está configurada; os cenários PostgreSQL ainda precisam ser executados no ambiente correspondente. Não foram feitos testes de carga nem medido um volume máximo de operações por segundo.

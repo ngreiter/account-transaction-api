@@ -2,7 +2,7 @@
 
 API REST para o desafio técnico de contas correntes: abertura de conta, depósitos, saques, transferências e consulta de extrato.
 
-> **Status:** abertura e consulta de contas, depósito, saque, transferência e extrato estão codificados. A implementação ainda aguarda testes unitários e funcionais.
+> **Status:** os fluxos da API estão implementados. Há testes unitários, testes de controller e testes de integração PostgreSQL no projeto. Os testes de integração exigem um PostgreSQL configurado e ainda precisam ser executados nesse ambiente. Não foram feitos testes de carga nem medido um volume máximo de operações.
 
 ## Stack
 
@@ -46,6 +46,18 @@ Para compilar e executar a verificação do projeto:
 .\mvnw.cmd verify
 ```
 
+O `verify` inicia o contexto da aplicação e precisa das variáveis `DB_URL`, `DB_USERNAME` e `DB_PASSWORD` configuradas. Para executar somente os testes de integração PostgreSQL:
+
+```powershell
+.\mvnw.cmd test "-Dtest=PostgresIntegrationTest"
+```
+
+`PostgresIntegrationTest` só é habilitado quando `DB_URL` aponta para JDBC PostgreSQL; configure também usuário e senha. Use um banco de teste isolado: a classe cria e remove seus próprios dados e, no cenário de rollback, instala temporariamente um trigger e uma função de teste.
+
+Os oito cenários de integração cobrem abertura/consulta de conta e documento duplicado (CPF e CNPJ), depósito e saque com saldo e lançamentos persistidos, transferência com lançamentos equilibrados, replay e conflito de idempotência, extrato por período com saldos/ordenação/paginação, dois saques concorrentes de R$ 80 contra saldo de R$ 100 (somente um deve ser efetivado) e rollback integral de transferência quando ocorre falha no lançamento de destino. Esses testes estão implementados, mas ainda não foram executados contra o PostgreSQL deste ambiente.
+
+Os testes de controller usam MockMvc e comparam corpos de resposta com fixtures JSON. A existência desses testes não representa teste de carga: não foi medido throughput máximo ou volume máximo de operações por segundo.
+
 ## Organização da aplicação
 
 - `AccountController` concentra abertura, consulta de conta e consulta do extrato.
@@ -53,5 +65,3 @@ Para compilar e executar a verificação do projeto:
 - Cada caso de uso tem seu próprio serviço de aplicação; as regras específicas permanecem em cada serviço.
 - A idempotência compartilhada valida a chave, calcula SHA-256 sobre a canonicalização própria de cada operação e persiste/reutiliza o status e o corpo originais.
 - `Account` atualiza o próprio saldo por crédito e débito. O débito sinaliza saldo insuficiente com exceção de domínio, traduzida pelo serviço para `422`.
-
-O código foi implementado, mas ainda não foi validado por testes unitários e funcionais. O comando `verify` abaixo está disponível para a etapa de verificação.
