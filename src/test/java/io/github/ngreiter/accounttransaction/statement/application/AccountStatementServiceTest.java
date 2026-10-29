@@ -1,8 +1,11 @@
 package io.github.ngreiter.accounttransaction.statement.application;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
@@ -17,6 +20,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 
+import io.github.ngreiter.accounttransaction.account.application.AccountNotFoundException;
 import io.github.ngreiter.accounttransaction.domain.MovementType;
 import io.github.ngreiter.accounttransaction.domain.TransactionType;
 import io.github.ngreiter.accounttransaction.persistence.AccountRepository;
@@ -92,12 +96,80 @@ class AccountStatementServiceTest {
                 PageRequest.of(1, 3));
     }
 
+    @Test
+    void rejectsMissingMalformedAndImpossibleDates() {
+        assertThrows(IllegalArgumentException.class,
+                () -> service.getStatement(ACCOUNT_NUMBER, null, "2026-06-12", null, null));
+        assertThrows(IllegalArgumentException.class,
+                () -> service.getStatement(ACCOUNT_NUMBER, "2026/06/10", "2026-06-12", null, null));
+        assertThrows(IllegalArgumentException.class,
+                () -> service.getStatement(ACCOUNT_NUMBER, "2026-02-30", "2026-06-12", null, null));
+
+        verify(accountRepository, never()).existsById(ACCOUNT_NUMBER);
+    }
+
+    @Test
+    void rejectsPeriodStartingAfterItsEnd() {
+        assertThrows(IllegalArgumentException.class,
+                () -> service.getStatement(ACCOUNT_NUMBER, "2026-06-13", "2026-06-12", null, null));
+
+        verify(accountRepository, never()).existsById(ACCOUNT_NUMBER);
+    }
+
+    @Test
+    void rejectsMalformedNonPositiveAndOversizedPagination() {
+        assertThrows(IllegalArgumentException.class,
+                () -> service.getStatement(ACCOUNT_NUMBER, "2026-06-10", "2026-06-12", "x", "10"));
+        assertThrows(IllegalArgumentException.class,
+                () -> service.getStatement(ACCOUNT_NUMBER, "2026-06-10", "2026-06-12", "0", "10"));
+        assertThrows(IllegalArgumentException.class,
+                () -> service.getStatement(ACCOUNT_NUMBER, "2026-06-10", "2026-06-12", "1", "x"));
+        assertThrows(IllegalArgumentException.class,
+                () -> service.getStatement(ACCOUNT_NUMBER, "2026-06-10", "2026-06-12", "1", "0"));
+        assertThrows(IllegalArgumentException.class,
+                () -> service.getStatement(ACCOUNT_NUMBER, "2026-06-10", "2026-06-12", "1", "101"));
+
+        verify(accountRepository, never()).existsById(ACCOUNT_NUMBER);
+    }
+
+    @Test
+    void usesDefaultPaginationAndTreatsNullBalancesAndEntryAmountsAsZero() {
+        Instant fromInclusive = LocalDate.parse("2026-08-01").atStartOfDay(BUSINESS_ZONE).toInstant();
+        Instant toExclusive = LocalDate.parse("2026-08-02").atStartOfDay(BUSINESS_ZONE).toInstant();
+        AccountTransactionStatementRow row = entry("2026-08-01T12:00:00Z", null, MovementType.CREDIT);
+        PageRequest defaultPage = PageRequest.of(0, 20);
+        when(accountTransactionRepository.findStatementEntries(ACCOUNT_NUMBER, fromInclusive, toExclusive,
+                defaultPage)).thenReturn(new PageImpl<>(List.of(row), defaultPage, 1));
+
+        StatementResponse response = service.getStatement(ACCOUNT_NUMBER, "2026-08-01", "2026-08-01", null, null);
+
+        assertEquals(1, response.page());
+        assertEquals(20, response.size());
+        assertEquals(BigDecimal.ZERO.setScale(2), response.openingBalance());
+        assertEquals(BigDecimal.ZERO.setScale(2), response.closingBalance());
+        assertEquals(BigDecimal.ZERO.setScale(2), response.entries().getFirst().amount());
+        verify(accountTransactionRepository).findStatementEntries(ACCOUNT_NUMBER, fromInclusive, toExclusive,
+                defaultPage);
+    }
+
+    @Test
+    void throwsWhenAccountDoesNotExist() {
+        when(accountRepository.existsById("87654321-2")).thenReturn(false);
+
+        assertThrows(AccountNotFoundException.class,
+                () -> service.getStatement("87654321-2", "2026-06-10", "2026-06-12", null, null));
+
+        verifyNoInteractions(accountTransactionRepository);
+    }
+
     private AccountTransactionStatementRow entry(String postedAt, String amount, MovementType movementType) {
         AccountTransactionStatementRow row = mock(AccountTransactionStatementRow.class);
         when(row.getFinancialTransactionId()).thenReturn(UUID.randomUUID());
         when(row.getTransactionType()).thenReturn(TransactionType.DEPOSIT);
         when(row.getMovementType()).thenReturn(movementType);
-        when(row.getAmount()).thenReturn(new BigDecimal(amount));
+        if (amount != null) {
+            when(row.getAmount()).thenReturn(new BigDecimal(amount));
+        }
         when(row.getDescription()).thenReturn("movement");
         when(row.getPostedAt()).thenReturn(Instant.parse(postedAt));
         return row;
