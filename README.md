@@ -2,9 +2,9 @@
 
 API REST para o desafio técnico de contas correntes: abertura de conta, depósitos, saques, transferências e consulta de extrato.
 
-> **Status:** repositório recém-criado. Neste momento contém o esqueleto gerado pelo Spring Tools; as regras e o contrato abaixo estão planejados e ainda serão implementados.
+> **Status:** abertura e consulta de contas, depósito, saque, transferência e extrato estão codificados. A implementação ainda aguarda testes unitários e funcionais.
 
-## Stack planejada
+## Stack
 
 - Java 21
 - Spring Boot 4.1.2
@@ -15,7 +15,7 @@ API REST para o desafio técnico de contas correntes: abertura de conta, depósi
 ## Documentação
 
 - [Decisões e arquitetura](docs/DECISOES_E_ARQUITETURA.md): escopo, regras, modelo de dados, concorrência, idempotência e privacidade.
-- [Contrato da API](docs/CONTRATO_API.md): endpoints, exemplos e respostas de erro planejadas.
+- [Contrato da API](docs/CONTRATO_API.md): endpoints, requests, responses e erros implementados.
 - [Roteiro de apresentação](docs/APRESENTACAO.md): resumo da solução e pontos para explicar na entrevista.
 
 ## Ambiente de desenvolvimento
@@ -47,4 +47,12 @@ Para compilar e executar a verificação do projeto:
 .\mvnw.cmd verify
 ```
 
-O contrato HTTP permanece planejado; os endpoints ainda não estão implementados.
+## Organização da aplicação
+
+- `AccountController` concentra abertura, consulta de conta e consulta do extrato.
+- `TransactionController` concentra depósito, saque e transferência.
+- Cada caso de uso tem seu próprio serviço de aplicação; as regras específicas permanecem em cada serviço.
+- A idempotência compartilhada valida a chave, calcula SHA-256 sobre a canonicalização própria de cada operação e persiste/reutiliza o status e o corpo originais.
+- `Account` atualiza o próprio saldo por crédito e débito. O débito sinaliza saldo insuficiente com exceção de domínio, traduzida pelo serviço para `422`.
+
+O código foi implementado, mas ainda não foi validado por testes unitários e funcionais. O comando `verify` abaixo está disponível para a etapa de verificação.

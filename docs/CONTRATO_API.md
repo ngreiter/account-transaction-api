@@ -1,43 +1,45 @@
-# Contrato HTTP acordado
+# Contrato HTTP implementado
 
-Prefixo: `/api/v1`. JSON em todas as operações. A criação de conta (`POST /api/v1/accounts`) está implementada. Os demais endpoints abaixo permanecem planejados; os caminhos e formatos documentados continuam sendo a especificação acordada.
+Prefixo: `/api/v1`. Os endpoints desta tabela estão codificados. A implementação ainda aguarda testes unitários e funcionais. As respostas usam JSON; valores monetários nas respostas são strings decimais com duas casas.
 
-Valores monetários são enviados e retornados como decimais com no máximo duas casas. A implementação usará `BigDecimal` e `NUMERIC(19,2)`. As datas do extrato são `YYYY-MM-DD`; o intervalo inclui ambos os dias no fuso `America/Sao_Paulo`.
-
-| Método e endpoint | Entrada | Resposta de sucesso |
+| Método e endpoint | Request | Sucesso |
 |---|---|---|
-| `POST /api/v1/accounts` | `Idempotency-Key`; `{ "document": "12345678901" }` | `201 Created`; número público, saldo inicial `0.00` e instante de abertura. Documento não é devolvido. |
-| `GET /api/v1/accounts/{accountNumber}` | Número de conta com dígito | `200 OK`; número, documento mascarado e saldo atual. |
-| `POST /api/v1/transactions/deposits` | `Idempotency-Key`; número da conta, valor positivo e descrição opcional | `201 Created`; ID da operação, tipo `DEPOSIT`, valor e instante. |
-| `POST /api/v1/transactions/withdrawals` | `Idempotency-Key`; número da conta, valor positivo e descrição opcional | `201 Created`; ID da operação, tipo `WITHDRAWAL`, valor e instante. |
-| `POST /api/v1/transactions/transfers` | `Idempotency-Key`; conta de origem, conta de destino, valor positivo e descrição opcional | `201 Created`; ID da operação, tipo `TRANSFER`, valor e instante. |
-| `GET /api/v1/accounts/{accountNumber}/statement?from=YYYY-MM-DD&to=YYYY-MM-DD&page=1&size=20` | Conta, período; `page` e `size` opcionais | `200 OK`; saldo de abertura, movimentos da página, saldo de fechamento e metadados da página. |
+| `POST /api/v1/accounts` | Cabeçalho `Idempotency-Key`; corpo `{ "document": "12345678901" }`. Documento obrigatório, até 18 caracteres; CPF/CNPJ é normalizado e validado. | `201 Created`; `{ "accountNumber": "12345678-9", "balance": "0.00", "createdAt": "<instante ISO-8601>" }`. |
+| `GET /api/v1/accounts/{accountNumber}` | Número completo da conta, incluindo dígito verificador. | `200 OK`; `{ "accountNumber": "12345678-9", "documentMasked": "***.***.***-01", "balance": "30.00" }`. Para CNPJ, o documento também é mascarado. |
+| `POST /api/v1/transactions/deposits` | Cabeçalho `Idempotency-Key`; `{ "accountNumber": "12345678-9", "amount": 30.00, "description": "<opcional>" }`. | `201 Created`; `{ "financialTransactionId": "<uuid>", "type": "DEPOSIT", "amount": "30.00", "status": "SUCCEEDED", "postedAt": "<instante ISO-8601>" }`. |
+| `POST /api/v1/transactions/withdrawals` | Cabeçalho `Idempotency-Key`; `{ "accountNumber": "12345678-9", "amount": 30.00, "description": "<opcional>" }`. | `201 Created`; mesmos campos da resposta de depósito, com `type: "WITHDRAWAL"`. |
+| `POST /api/v1/transactions/transfers` | Cabeçalho `Idempotency-Key`; `{ "sourceAccountNumber": "12345678-9", "destinationAccountNumber": "87654321-0", "amount": 30.00, "description": "<opcional>" }`. | `201 Created`; mesmos campos da resposta de depósito, com `type: "TRANSFER"`. |
+| `GET /api/v1/accounts/{accountNumber}/statement?from=2026-01-01&to=2026-01-31&page=1&size=20` | `from` e `to` no formato `YYYY-MM-DD`; `page` e `size` opcionais. | `200 OK`; objeto com conta, intervalo, saldos de abertura/fechamento, movimentos e metadados de paginação. |
 
-## Paginação do extrato
+## Requests e validação
 
-- `page` começa em `1`; padrão `1`.
-- `size` padrão `20`, máximo `100`.
-- Página ou tamanho menor que `1`, ou tamanho maior que `100`, retorna `400`.
-- Uma página além da última retorna `200` com `entries: []`.
-- `numberOfElements` é a quantidade de registros devolvidos naquela página; `totalEntries` é o total do período.
-- Saldos de abertura e fechamento cobrem o período completo, não apenas os itens da página.
-- Ordem cronológica crescente por `posted_at`, com `id` como desempate para manter a paginação estável.
+- Os requests de depósito, saque e transferência exigem valor maior que zero, até 17 dígitos inteiros e duas casas decimais. Mais de duas casas não é aceito. A descrição é opcional e limitada a 500 caracteres.
+- Números de conta seguem o formato de oito algarismos, hífen e dígito verificador. Transferência exige contas distintas.
+- A abertura aceita CPF de 11 dígitos ou CNPJ com 12 caracteres alfanuméricos seguidos de dois dígitos verificadores. Pontos, barras e hífens são removidos; letras são convertidas para maiúsculas.
+- A aplicação valida `Idempotency-Key` (não vazia e com até 255 caracteres). Embora o cabeçalho seja opcional no binding HTTP, a operação sem chave retorna `400`.
+- Datas de extrato são obrigatórias na aplicação, precisam ser datas válidas e `from` deve ser anterior ou igual a `to`. Os dois dias são incluídos no fuso `America/Sao_Paulo`.
+
+## Response do extrato
+
+O corpo contém `accountNumber`, `from`, `to`, `openingBalance`, `entries`, `closingBalance`, `page`, `size`, `numberOfElements` e `totalEntries`. Cada entrada contém `financialTransactionId`, `transactionType`, `movementType`, `amount`, `description` e `postedAt`. Saldos e valores monetários são strings decimais com duas casas. `page` começa em 1 (padrão 1), `size` tem padrão 20 e máximo 100. Uma página além da última retorna 200 com `entries: []`. A ordenação é crescente por `postedAt` e depois por `id`; os saldos abrangem todo o período, não apenas a página.
 
 ## Idempotência
 
-Todos os `POST` que alteram dados exigem o cabeçalho `Idempotency-Key`. O chamador gera uma chave opaca e reutiliza a mesma chave ao repetir a mesma operação após timeout. O servidor calcula um hash do conteúdo relevante e guarda a chave, hash e resposta no PostgreSQL. Mesma chave e mesmo conteúdo reproduzem a resposta original; mesma chave com conteúdo diferente retorna `409 IDEMPOTENCY_CONFLICT`. Uma nova tentativa de negócio usa uma nova chave. A chave não autentica nem autoriza o chamador.
+Todos os POST exigem a chave na aplicação. A chave é globalmente única no banco, persistida junto ao hash, status HTTP e corpo JSON original. Repetir a mesma chave com o mesmo hash reproduz o status e o corpo armazenados sem repetir efeitos; a reprodução do corpo é exata. Reutilizar a chave com outro hash retorna `409 IDEMPOTENCY_CONFLICT`. Rejeições de regra de negócio processadas, como documento já cadastrado, conta inexistente e saldo insuficiente, também têm seu resultado persistido para replay. Erros de validação anteriores ao processamento não são registrados. A chave não autentica nem autoriza o chamador.
 
-## Erros planejados
+O SHA-256 é comum; cada serviço preserva sua própria canonicalização. A abertura usa o documento normalizado. Depósito usa número da conta, valor em `toPlainString()` e descrição marcada como nula ou presente. Saque acrescenta o escopo do endpoint antes desses campos. Transferência usa o escopo, conta de origem, conta de destino, valor e descrição. A chave e o hash não são enviados na resposta.
 
-Formato comum: `{ "code": "...", "message": "..." }`. A mensagem não revela saldo disponível, CPF/CNPJ, credenciais, SQL ou detalhes internos. Não há `correlationId` na resposta.
+## Erros
 
-| HTTP | Código | Situação |
-|---|---|---|
-| `400` | `VALIDATION_ERROR` | Entrada inválida, chave ausente, valor/formato inválido ou paginação/período inválidos. |
-| `404` | `RESOURCE_NOT_FOUND` | Conta inexistente. Para transferência, a mesma resposta genérica cobre qualquer uma das contas. |
-| `409` | `ACCOUNT_CONFLICT` | CPF/CNPJ já associado a uma conta; mensagem genérica para não confirmar se o documento está cadastrado. |
-| `409` | `IDEMPOTENCY_CONFLICT` | Chave idempotente reutilizada com outro conteúdo. |
-| `422` | `INSUFFICIENT_FUNDS` | Saldo não cobre saque ou transferência; sem devolver saldo atual. |
-| `500` | `INTERNAL_ERROR` | Falha técnica inesperada; `{ "code": "INTERNAL_ERROR", "message": "Ocorreu um erro interno." }`. |
+Erros JSON têm o formato { "code": "...", "message": "..." }.
 
-A API não retorna `503` neste contrato: falhas técnicas, inclusive indisponibilidade do banco, recebem resposta genérica `500`. Erros de validação são rejeitados antes da transação; regras dependentes do saldo e existência da conta são verificadas dentro da transação, depois dos locks.
+| HTTP | Código | Situação | Mensagem |
+|---|---|---|---|
+| 400 | VALIDATION_ERROR | Request inválido, chave ausente/inválida, valor, conta ou datas inválidas, paginação inválida ou contas iguais na transferência. | Verifique os dados enviados. |
+| 404 | RESOURCE_NOT_FOUND | Conta consultada ou movimentada não encontrada; na transferência, qualquer conta ausente usa a mesma resposta. | Recurso não encontrado. |
+| 409 | ACCOUNT_CONFLICT | Documento já associado. | Não foi possível abrir a conta com os dados informados. |
+| 409 | IDEMPOTENCY_CONFLICT | Mesma chave usada com conteúdo diferente. | A chave de idempotência não pode ser reutilizada com dados diferentes. |
+| 422 | INSUFFICIENT_FUNDS | Saldo insuficiente para saque ou transferência; saldo atual não é exposto. | Saldo insuficiente para concluir a operação. |
+| 500 | INTERNAL_ERROR | Erro inesperado. | Ocorreu um erro interno. |
+
+A API não define resposta 503; falhas técnicas inesperadas são mapeadas para o erro genérico 500.
