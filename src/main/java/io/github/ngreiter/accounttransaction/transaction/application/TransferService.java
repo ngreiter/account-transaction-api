@@ -2,10 +2,6 @@ package io.github.ngreiter.accounttransaction.transaction.application;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -26,7 +22,7 @@ import io.github.ngreiter.accounttransaction.domain.TransactionType;
 import io.github.ngreiter.accounttransaction.persistence.AccountRepository;
 import io.github.ngreiter.accounttransaction.persistence.AccountTransactionRepository;
 import io.github.ngreiter.accounttransaction.persistence.FinancialTransactionRepository;
-import io.github.ngreiter.accounttransaction.persistence.IdempotencyRecordRepository;
+import io.github.ngreiter.accounttransaction.shared.application.IdempotencySupport;
 import jakarta.persistence.EntityManager;
 
 @Service
@@ -38,7 +34,7 @@ public class TransferService {
     private final AccountRepository accountRepository;
     private final FinancialTransactionRepository financialTransactionRepository;
     private final AccountTransactionRepository accountTransactionRepository;
-    private final IdempotencyRecordRepository idempotencyRecordRepository;
+    private final IdempotencySupport idempotencySupport;
     private final TransactionTemplate transactionTemplate;
     private final EntityManager entityManager;
     private final TransactionResponseSnapshotSerializer responseSerializer;
@@ -46,13 +42,13 @@ public class TransferService {
     public TransferService(AccountRepository accountRepository,
             FinancialTransactionRepository financialTransactionRepository,
             AccountTransactionRepository accountTransactionRepository,
-            IdempotencyRecordRepository idempotencyRecordRepository,
+            IdempotencySupport idempotencySupport,
             TransactionTemplate transactionTemplate, EntityManager entityManager,
             TransactionResponseSnapshotSerializer responseSerializer) {
         this.accountRepository = accountRepository;
         this.financialTransactionRepository = financialTransactionRepository;
         this.accountTransactionRepository = accountTransactionRepository;
-        this.idempotencyRecordRepository = idempotencyRecordRepository;
+        this.idempotencySupport = idempotencySupport;
         this.transactionTemplate = transactionTemplate;
         this.entityManager = entityManager;
         this.responseSerializer = responseSerializer;
@@ -70,7 +66,7 @@ public class TransferService {
                         idempotencyKey, command, amount, requestHash));
                 break;
             } catch (DataIntegrityViolationException exception) {
-                var saved = idempotencyRecordRepository.findByIdempotencyKey(idempotencyKey);
+                var saved = idempotencySupport.findByKey(idempotencyKey);
                 if (saved.isPresent()) {
                     result = replayOrConflict(saved.get(), requestHash);
                     break;
@@ -91,7 +87,7 @@ public class TransferService {
 
     private TransferResult transferInTransaction(String idempotencyKey, TransferCommand command,
             BigDecimal amount, String requestHash) {
-        var existing = idempotencyRecordRepository.findByIdempotencyKey(idempotencyKey);
+        var existing = idempotencySupport.findByKey(idempotencyKey);
         if (existing.isPresent()) {
             return replayOrConflict(existing.get(), requestHash);
         }
@@ -132,13 +128,13 @@ public class TransferService {
         TransactionResponseSnapshotSerializer.Snapshot snapshot = responseSerializer.created(
                 financialTransaction.getId(), TransactionType.TRANSFER.name(), amount,
                 "SUCCEEDED", debit.getPostedAt());
-        idempotencyRecordRepository.save(new IdempotencyRecord(SCOPE, idempotencyKey, requestHash,
-                financialTransaction, snapshot.status(), snapshot.body()));
+        idempotencySupport.save(SCOPE, idempotencyKey, requestHash,
+                financialTransaction, snapshot.status(), snapshot.body());
         return TransferResult.succeeded(snapshot.body());
     }
 
     private TransferResult replayOrConflict(IdempotencyRecord record, String requestHash) {
-        if (!record.getRequestHash().equals(requestHash)) {
+        if (!idempotencySupport.matchesRequest(record, requestHash)) {
             return rejected(TransactionError.IDEMPOTENCY_CONFLICT);
         }
         TransactionError storedError = TransactionError.fromStoredStatus(record.getResponseStatus());
@@ -155,15 +151,12 @@ public class TransferService {
 
     private TransferResult persistError(String idempotencyKey, String requestHash, TransactionError error) {
         TransactionResponseSnapshotSerializer.Snapshot snapshot = responseSerializer.rejected(error);
-        idempotencyRecordRepository.save(new IdempotencyRecord(SCOPE, idempotencyKey, requestHash,
-                snapshot.status(), snapshot.body()));
+        idempotencySupport.save(SCOPE, idempotencyKey, requestHash, snapshot.status(), snapshot.body());
         return TransferResult.rejected(error, snapshot.body());
     }
 
     private void validate(String idempotencyKey, TransferCommand command) {
-        if (idempotencyKey == null || idempotencyKey.isBlank() || idempotencyKey.length() > 255) {
-            throw new IllegalArgumentException("Idempotency-Key inválida.");
-        }
+        idempotencySupport.validateKey(idempotencyKey);
         if (command == null) {
             throw new IllegalArgumentException("Dados da transferência inválidos.");
         }
@@ -185,11 +178,6 @@ public class TransferService {
         String canonical = SCOPE + "\n" + command.sourceAccountNumber() + "\n"
                 + command.destinationAccountNumber() + "\n" + amount.toPlainString() + "\n"
                 + (command.description() == null ? "<null>" : "<value>" + command.description());
-        try {
-            byte[] digest = MessageDigest.getInstance("SHA-256").digest(canonical.getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(digest);
-        } catch (NoSuchAlgorithmException exception) {
-            throw new IllegalStateException("SHA-256 indisponível.", exception);
-        }
+        return idempotencySupport.hashCanonicalRequest(canonical);
     }
 }

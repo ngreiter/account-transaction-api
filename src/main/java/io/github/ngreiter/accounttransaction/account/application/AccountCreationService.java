@@ -1,11 +1,6 @@
 package io.github.ngreiter.accounttransaction.account.application;
 
 import java.math.BigDecimal;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.HexFormat;
-
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -17,7 +12,7 @@ import jakarta.persistence.EntityManager;
 import io.github.ngreiter.accounttransaction.domain.Account;
 import io.github.ngreiter.accounttransaction.domain.IdempotencyRecord;
 import io.github.ngreiter.accounttransaction.persistence.AccountRepository;
-import io.github.ngreiter.accounttransaction.persistence.IdempotencyRecordRepository;
+import io.github.ngreiter.accounttransaction.shared.application.IdempotencySupport;
 
 @Service
 public class AccountCreationService {
@@ -29,18 +24,18 @@ public class AccountCreationService {
     private static final String IDEMPOTENCY_KEY_CONSTRAINT = "uq_idempotency_record_key";
 
     private final AccountRepository accountRepository;
-    private final IdempotencyRecordRepository idempotencyRecordRepository;
+    private final IdempotencySupport idempotencySupport;
     private final AccountNumberGenerator accountNumberGenerator;
     private final AccountCreationResponseSnapshotSerializer responseSerializer;
     private final TransactionTemplate transactionTemplate;
     private final EntityManager entityManager;
 
     public AccountCreationService(AccountRepository accountRepository,
-            IdempotencyRecordRepository idempotencyRecordRepository,
+            IdempotencySupport idempotencySupport,
             AccountNumberGenerator accountNumberGenerator, AccountCreationResponseSnapshotSerializer responseSerializer,
             TransactionTemplate transactionTemplate, EntityManager entityManager) {
         this.accountRepository = accountRepository;
-        this.idempotencyRecordRepository = idempotencyRecordRepository;
+        this.idempotencySupport = idempotencySupport;
         this.accountNumberGenerator = accountNumberGenerator;
         this.responseSerializer = responseSerializer;
         this.transactionTemplate = transactionTemplate;
@@ -48,11 +43,9 @@ public class AccountCreationService {
     }
 
     public AccountCreationResult create(String idempotencyKey, String document) {
-        if (idempotencyKey == null || idempotencyKey.isBlank() || idempotencyKey.length() > 255) {
-            throw new IllegalArgumentException("Idempotency-Key inv\u00e1lida.");
-        }
+        idempotencySupport.validateKey(idempotencyKey);
         String normalizedDocument = DocumentNormalizer.normalizeAndValidate(document);
-        String requestHash = sha256(normalizedDocument);
+        String requestHash = idempotencySupport.hashCanonicalRequest(normalizedDocument);
         AccountCreationResult result = null;
 
         for (int attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
@@ -64,7 +57,7 @@ public class AccountCreationService {
             } catch (DataIntegrityViolationException exception) {
                 String constraintName = constraintName(exception);
                 if (IDEMPOTENCY_KEY_CONSTRAINT.equals(constraintName)) {
-                    var existing = idempotencyRecordRepository.findByIdempotencyKey(idempotencyKey);
+                    var existing = idempotencySupport.findByKey(idempotencyKey);
                     if (existing.isPresent()) {
                         result = replayOrConflict(existing.get(), requestHash);
                         break;
@@ -93,7 +86,7 @@ public class AccountCreationService {
 
     private AccountCreationResult createInTransaction(String idempotencyKey, String document, String requestHash,
             String accountNumber) {
-        var existingRequest = idempotencyRecordRepository.findByIdempotencyKey(idempotencyKey);
+        var existingRequest = idempotencySupport.findByKey(idempotencyKey);
         if (existingRequest.isPresent()) {
             return replayOrConflict(existingRequest.get(), requestHash);
         }
@@ -107,13 +100,12 @@ public class AccountCreationService {
         entityManager.refresh(account);
         AccountCreationResponseSnapshotSerializer.Snapshot snapshot = responseSerializer.created(
                 account.getAccountNumber(), BigDecimal.ZERO.setScale(2), account.getCreatedAt());
-        idempotencyRecordRepository.save(new IdempotencyRecord(SCOPE, idempotencyKey, requestHash,
-                snapshot.status(), snapshot.body()));
+        idempotencySupport.save(SCOPE, idempotencyKey, requestHash, snapshot.status(), snapshot.body());
         return AccountCreationResult.succeeded(snapshot.body());
     }
 
     private AccountCreationResult replayOrConflict(IdempotencyRecord record, String requestHash) {
-        if (!record.getRequestHash().equals(requestHash)) {
+        if (!idempotencySupport.matchesRequest(record, requestHash)) {
             return rejected(AccountCreationError.IDEMPOTENCY_CONFLICT);
         }
         if (record.getResponseStatus() == 409) {
@@ -130,8 +122,7 @@ public class AccountCreationService {
     private AccountCreationResult persistError(String idempotencyKey, String requestHash,
             AccountCreationError error) {
         AccountCreationResponseSnapshotSerializer.Snapshot snapshot = responseSerializer.rejected(error);
-        idempotencyRecordRepository.save(new IdempotencyRecord(SCOPE, idempotencyKey, requestHash,
-                snapshot.status(), snapshot.body()));
+        idempotencySupport.save(SCOPE, idempotencyKey, requestHash, snapshot.status(), snapshot.body());
         return AccountCreationResult.rejected(error, snapshot.body());
     }
 
@@ -146,12 +137,4 @@ public class AccountCreationService {
         return null;
     }
 
-    private static String sha256(String value) {
-        try {
-            byte[] digest = MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(digest);
-        } catch (NoSuchAlgorithmException exception) {
-            throw new IllegalStateException("SHA-256 indisponível.", exception);
-        }
-    }
 }
