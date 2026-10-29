@@ -1,6 +1,7 @@
 package io.github.ngreiter.accounttransaction.account.api;
 
 import org.springframework.http.MediaType;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -40,7 +41,8 @@ public class AccountController {
     public ResponseEntity<String> create(@RequestHeader(name = "Idempotency-Key", required = false) String key,
             @Valid @RequestBody CreateAccountRequest request) {
         AccountCreationResult result = accountCreationService.create(key, request.document());
-        return ResponseEntity.status(result.status()).contentType(MediaType.APPLICATION_JSON).body(result.responseBody());
+        int status = result.replayedStatus() == null ? HttpStatus.CREATED.value() : result.replayedStatus();
+        return ResponseEntity.status(status).contentType(MediaType.APPLICATION_JSON).body(result.responseBody());
     }
 
     @GetMapping(path = "/{accountNumber}", produces = MediaType.APPLICATION_JSON_VALUE)

@@ -1,23 +1,21 @@
 package io.github.ngreiter.accounttransaction.account.application;
 
-import org.springframework.http.HttpStatus;
-
 public class AccountCreationException extends RuntimeException {
 
-    private final HttpStatus status;
-    private final String code;
+    private final AccountCreationError error;
+    private final String responseBody;
 
-    public AccountCreationException(HttpStatus status, String code, String message) {
-        super(message);
-        this.status = status;
-        this.code = code;
+    public AccountCreationException(AccountCreationError error, String responseBody) {
+        super(error.message());
+        this.error = error;
+        this.responseBody = responseBody;
     }
 
-    public HttpStatus status() {
-        return status;
+    public AccountCreationError error() {
+        return error;
     }
 
-    public String code() {
-        return code;
+    public String responseBody() {
+        return responseBody;
     }
 }

@@ -1,6 +1,7 @@
 package io.github.ngreiter.accounttransaction.shared.api;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -20,9 +21,11 @@ public class AccountApiExceptionHandler {
     }
 
     @ExceptionHandler(AccountCreationException.class)
-    ResponseEntity<ApiError> handleAccountCreation(AccountCreationException exception) {
-        return ResponseEntity.status(exception.status())
-                .body(new ApiError(exception.code(), exception.getMessage()));
+    ResponseEntity<String> handleAccountCreation(AccountCreationException exception) {
+        HttpStatus status = switch (exception.error()) {
+            case ACCOUNT_CONFLICT, IDEMPOTENCY_CONFLICT -> HttpStatus.CONFLICT;
+        };
+        return ResponseEntity.status(status).contentType(MediaType.APPLICATION_JSON).body(exception.responseBody());
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
