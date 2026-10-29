@@ -10,11 +10,16 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.json.JsonCompareMode;
 import org.springframework.test.web.servlet.MockMvc;
 
 import io.github.ngreiter.accounttransaction.transaction.application.DepositCommand;
@@ -58,10 +63,7 @@ class TransactionControllerTest {
                 .content("{\"accountNumber\":\"12345678-9\",\"amount\":25.00,\"description\":\"cash in\"}"))
                 .andExpect(status().isCreated())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$.financialTransactionId").value("e4728a74-272b-4a45-8805-d314824a8453"))
-                .andExpect(jsonPath("$.type").value("DEPOSIT"))
-                .andExpect(jsonPath("$.amount").value("25.00"))
-                .andExpect(jsonPath("$.status").value("SUCCEEDED"));
+                .andExpect(content().json(expectedJson("transaction-deposit.json"), JsonCompareMode.STRICT));
 
         verify(depositService).deposit(eq("deposit-1"), any(DepositCommand.class));
     }
@@ -82,7 +84,8 @@ class TransactionControllerTest {
     @Test
     void withdrawsAndReturnsCreatedStatusAndTransactionFields() throws Exception {
         String body = "{\"financialTransactionId\":\"e4728a74-272b-4a45-8805-d314824a8453\","
-                + "\"type\":\"WITHDRAWAL\",\"amount\":\"10.00\",\"status\":\"SUCCEEDED\"}";
+                + "\"type\":\"WITHDRAWAL\",\"amount\":\"10.00\",\"status\":\"SUCCEEDED\","
+                + "\"postedAt\":\"2026-10-28T12:00:00Z\"}";
         when(withdrawalService.withdraw(eq("withdraw-1"), any(WithdrawalCommand.class)))
                 .thenReturn(WithdrawalResult.succeeded(body));
 
@@ -91,16 +94,14 @@ class TransactionControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"accountNumber\":\"12345678-9\",\"amount\":10.00}"))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.financialTransactionId").value("e4728a74-272b-4a45-8805-d314824a8453"))
-                .andExpect(jsonPath("$.type").value("WITHDRAWAL"))
-                .andExpect(jsonPath("$.amount").value("10.00"))
-                .andExpect(jsonPath("$.status").value("SUCCEEDED"));
+                .andExpect(content().json(expectedJson("transaction-withdrawal.json"), JsonCompareMode.STRICT));
     }
 
     @Test
     void transfersAndReturnsCreatedStatusAndTransactionFields() throws Exception {
         String body = "{\"financialTransactionId\":\"e4728a74-272b-4a45-8805-d314824a8453\","
-                + "\"type\":\"TRANSFER\",\"amount\":\"7.50\",\"status\":\"SUCCEEDED\"}";
+                + "\"type\":\"TRANSFER\",\"amount\":\"7.50\",\"status\":\"SUCCEEDED\","
+                + "\"postedAt\":\"2026-10-28T12:00:00Z\"}";
         when(transferService.transfer(eq("transfer-1"), any(TransferCommand.class)))
                 .thenReturn(TransferResult.succeeded(body));
 
@@ -110,10 +111,7 @@ class TransactionControllerTest {
                 .content("{\"sourceAccountNumber\":\"12345678-9\","
                         + "\"destinationAccountNumber\":\"87654321-2\",\"amount\":7.50}"))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.financialTransactionId").value("e4728a74-272b-4a45-8805-d314824a8453"))
-                .andExpect(jsonPath("$.type").value("TRANSFER"))
-                .andExpect(jsonPath("$.amount").value("7.50"))
-                .andExpect(jsonPath("$.status").value("SUCCEEDED"));
+                .andExpect(content().json(expectedJson("transaction-transfer.json"), JsonCompareMode.STRICT));
     }
 
     @Test
@@ -169,5 +167,14 @@ class TransactionControllerTest {
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
 
         verify(depositService, never()).deposit(eq("invalid-deposit"), any(DepositCommand.class));
+    }
+
+    private String expectedJson(String fileName) throws IOException {
+        try (InputStream fixture = getClass().getResourceAsStream("/json/transaction/" + fileName)) {
+            if (fixture == null) {
+                throw new IllegalStateException("JSON fixture not found: " + fileName);
+            }
+            return new String(fixture.readAllBytes(), StandardCharsets.UTF_8);
+        }
     }
 }

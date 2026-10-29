@@ -1,0 +1,7 @@
+{
+  "financialTransactionId": "e4728a74-272b-4a45-8805-d314824a8453",
+  "type": "DEPOSIT",
+  "amount": "25.00",
+  "status": "SUCCEEDED",
+  "postedAt": "2026-10-28T12:00:00Z"
+}

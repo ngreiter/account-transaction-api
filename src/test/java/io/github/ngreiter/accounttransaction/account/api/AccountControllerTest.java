@@ -10,7 +10,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.util.List;
 
@@ -19,6 +22,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.json.JsonCompareMode;
 import org.springframework.test.web.servlet.MockMvc;
 
 import io.github.ngreiter.accounttransaction.account.application.AccountCreationError;
@@ -57,8 +61,7 @@ class AccountControllerTest {
                 .content("{\"document\":\"52998224725\"}"))
                 .andExpect(status().isCreated())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$.accountNumber").value("12345678-9"))
-                .andExpect(jsonPath("$.balance").value("0.00"));
+                .andExpect(content().json(expectedJson("account-created.json"), JsonCompareMode.STRICT));
     }
 
     @Test
@@ -93,9 +96,7 @@ class AccountControllerTest {
 
         mockMvc.perform(get("/api/v1/accounts/12345678-9"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.accountNumber").value("12345678-9"))
-                .andExpect(jsonPath("$.documentMasked").value("***.***.***-25"))
-                .andExpect(jsonPath("$.balance").value("42.50"));
+                .andExpect(content().json(expectedJson("account-details.json"), JsonCompareMode.STRICT));
     }
 
     @Test
@@ -122,12 +123,18 @@ class AccountControllerTest {
                 .param("page", "2")
                 .param("size", "5"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.accountNumber").value("12345678-9"))
-                .andExpect(jsonPath("$.openingBalance").value("10.00"))
-                .andExpect(jsonPath("$.page").value(2))
-                .andExpect(jsonPath("$.size").value(5));
+                .andExpect(content().json(expectedJson("account-statement.json"), JsonCompareMode.STRICT));
 
         verify(accountStatementService).getStatement("12345678-9", "2026-10-01", "2026-10-31", "2", "5");
+    }
+
+    private String expectedJson(String fileName) throws IOException {
+        try (InputStream fixture = getClass().getResourceAsStream("/json/account/" + fileName)) {
+            if (fixture == null) {
+                throw new IllegalStateException("JSON fixture not found: " + fileName);
+            }
+            return new String(fixture.readAllBytes(), StandardCharsets.UTF_8);
+        }
     }
 
     @Test
