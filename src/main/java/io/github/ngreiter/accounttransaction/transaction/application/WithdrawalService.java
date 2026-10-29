@@ -14,6 +14,7 @@ import io.github.ngreiter.accounttransaction.domain.AccountNumber;
 import io.github.ngreiter.accounttransaction.domain.AccountTransaction;
 import io.github.ngreiter.accounttransaction.domain.FinancialTransaction;
 import io.github.ngreiter.accounttransaction.domain.IdempotencyRecord;
+import io.github.ngreiter.accounttransaction.domain.InsufficientFundsException;
 import io.github.ngreiter.accounttransaction.domain.MovementType;
 import io.github.ngreiter.accounttransaction.domain.TransactionType;
 import io.github.ngreiter.accounttransaction.persistence.AccountRepository;
@@ -97,12 +98,13 @@ public class WithdrawalService {
 
         Account account = lockedAccounts.getFirst();
         BigDecimal balanceBefore = account.getBalance();
-        if (balanceBefore.compareTo(amount) < 0) {
+        try {
+            account.debit(amount);
+        } catch (InsufficientFundsException ignored) {
             return persistError(idempotencyKey, requestHash, TransactionError.INSUFFICIENT_FUNDS);
         }
 
-        BigDecimal balanceAfter = balanceBefore.subtract(amount);
-        account.setBalance(balanceAfter);
+        BigDecimal balanceAfter = account.getBalance();
 
         FinancialTransaction financialTransaction = financialTransactionRepository
                 .saveAndFlush(new FinancialTransaction(TransactionType.WITHDRAWAL, amount));

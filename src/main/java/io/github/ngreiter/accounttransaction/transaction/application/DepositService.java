@@ -97,8 +97,8 @@ public class DepositService {
 
         Account account = lockedAccounts.getFirst();
         BigDecimal balanceBefore = account.getBalance();
-        BigDecimal balanceAfter = balanceBefore.add(amount);
-        account.setBalance(balanceAfter);
+        account.credit(amount);
+        BigDecimal balanceAfter = account.getBalance();
 
         FinancialTransaction financialTransaction = financialTransactionRepository
                 .saveAndFlush(new FinancialTransaction(TransactionType.DEPOSIT, amount));

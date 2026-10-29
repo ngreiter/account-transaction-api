@@ -46,8 +46,15 @@ public class Account {
         return balance;
     }
 
-    public void setBalance(BigDecimal balance) {
-        this.balance = balance;
+    public void credit(BigDecimal amount) {
+        this.balance = this.balance.add(amount);
+    }
+
+    public void debit(BigDecimal amount) {
+        if (balance.compareTo(amount) < 0) {
+            throw new InsufficientFundsException();
+        }
+        this.balance = this.balance.subtract(amount);
     }
 
     public Instant getCreatedAt() {

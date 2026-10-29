@@ -17,6 +17,7 @@ import io.github.ngreiter.accounttransaction.domain.AccountNumber;
 import io.github.ngreiter.accounttransaction.domain.AccountTransaction;
 import io.github.ngreiter.accounttransaction.domain.FinancialTransaction;
 import io.github.ngreiter.accounttransaction.domain.IdempotencyRecord;
+import io.github.ngreiter.accounttransaction.domain.InsufficientFundsException;
 import io.github.ngreiter.accounttransaction.domain.MovementType;
 import io.github.ngreiter.accounttransaction.domain.TransactionType;
 import io.github.ngreiter.accounttransaction.persistence.AccountRepository;
@@ -104,15 +105,16 @@ public class TransferService {
         }
 
         BigDecimal sourceBalanceBefore = source.getBalance();
-        if (sourceBalanceBefore.compareTo(amount) < 0) {
+        try {
+            source.debit(amount);
+        } catch (InsufficientFundsException ignored) {
             return persistError(idempotencyKey, requestHash, TransactionError.INSUFFICIENT_FUNDS);
         }
 
         BigDecimal destinationBalanceBefore = destination.getBalance();
-        BigDecimal sourceBalanceAfter = sourceBalanceBefore.subtract(amount);
-        BigDecimal destinationBalanceAfter = destinationBalanceBefore.add(amount);
-        source.setBalance(sourceBalanceAfter);
-        destination.setBalance(destinationBalanceAfter);
+        BigDecimal sourceBalanceAfter = source.getBalance();
+        destination.credit(amount);
+        BigDecimal destinationBalanceAfter = destination.getBalance();
 
         FinancialTransaction financialTransaction = financialTransactionRepository
                 .saveAndFlush(new FinancialTransaction(TransactionType.TRANSFER, amount));
