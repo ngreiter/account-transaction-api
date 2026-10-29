@@ -1,0 +1,93 @@
+{
+  "accountNumber": "12345678-9",
+  "from": "2026-10-01",
+  "to": "2026-10-31",
+  "openingBalance": "100.00",
+  "entries": [
+    {
+      "financialTransactionId": "00000000-0000-0000-0000-000000000001",
+      "transactionType": "DEPOSIT",
+      "movementType": "CREDIT",
+      "amount": "10.00",
+      "description": "salário",
+      "postedAt": "2026-10-15T09:00:00Z"
+    },
+    {
+      "financialTransactionId": "00000000-0000-0000-0000-000000000002",
+      "transactionType": "WITHDRAWAL",
+      "movementType": "DEBIT",
+      "amount": "5.00",
+      "description": "mercado",
+      "postedAt": "2026-10-15T09:01:00Z"
+    },
+    {
+      "financialTransactionId": "00000000-0000-0000-0000-000000000003",
+      "transactionType": "TRANSFER",
+      "movementType": "DEBIT",
+      "amount": "2.50",
+      "description": "transferência enviada",
+      "postedAt": "2026-10-15T09:02:00Z"
+    },
+    {
+      "financialTransactionId": "00000000-0000-0000-0000-000000000004",
+      "transactionType": "TRANSFER",
+      "movementType": "CREDIT",
+      "amount": "3.50",
+      "description": "transferência recebida",
+      "postedAt": "2026-10-15T09:03:00Z"
+    },
+    {
+      "financialTransactionId": "00000000-0000-0000-0000-000000000005",
+      "transactionType": "DEPOSIT",
+      "movementType": "CREDIT",
+      "amount": "20.00",
+      "description": null,
+      "postedAt": "2026-10-15T09:04:00Z"
+    },
+    {
+      "financialTransactionId": "00000000-0000-0000-0000-000000000006",
+      "transactionType": "WITHDRAWAL",
+      "movementType": "DEBIT",
+      "amount": "7.25",
+      "description": "conta de luz",
+      "postedAt": "2026-10-15T09:05:00Z"
+    },
+    {
+      "financialTransactionId": "00000000-0000-0000-0000-000000000007",
+      "transactionType": "DEPOSIT",
+      "movementType": "CREDIT",
+      "amount": "1.00",
+      "description": "ajuste",
+      "postedAt": "2026-10-15T09:06:00Z"
+    },
+    {
+      "financialTransactionId": "00000000-0000-0000-0000-000000000008",
+      "transactionType": "TRANSFER",
+      "movementType": "CREDIT",
+      "amount": "4.00",
+      "description": "recebimento",
+      "postedAt": "2026-10-15T09:07:00Z"
+    },
+    {
+      "financialTransactionId": "00000000-0000-0000-0000-000000000009",
+      "transactionType": "WITHDRAWAL",
+      "movementType": "DEBIT",
+      "amount": "2.00",
+      "description": "tarifa",
+      "postedAt": "2026-10-15T09:08:00Z"
+    },
+    {
+      "financialTransactionId": "00000000-0000-0000-0000-00000000000a",
+      "transactionType": "DEPOSIT",
+      "movementType": "CREDIT",
+      "amount": "5.00",
+      "description": "reembolso",
+      "postedAt": "2026-10-15T09:09:00Z"
+    }
+  ],
+  "closingBalance": "126.00",
+  "page": 1,
+  "size": 10,
+  "numberOfElements": 10,
+  "totalEntries": 12
+}

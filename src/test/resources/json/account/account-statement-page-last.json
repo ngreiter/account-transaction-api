@@ -1,0 +1,29 @@
+{
+  "accountNumber": "12345678-9",
+  "from": "2026-10-01",
+  "to": "2026-10-31",
+  "openingBalance": "100.00",
+  "entries": [
+    {
+      "financialTransactionId": "00000000-0000-0000-0000-00000000000b",
+      "transactionType": "TRANSFER",
+      "movementType": "DEBIT",
+      "amount": "1.25",
+      "description": "transferência enviada",
+      "postedAt": "2026-10-15T09:10:00Z"
+    },
+    {
+      "financialTransactionId": "00000000-0000-0000-0000-00000000000c",
+      "transactionType": "DEPOSIT",
+      "movementType": "CREDIT",
+      "amount": "0.50",
+      "description": "cashback",
+      "postedAt": "2026-10-15T09:11:00Z"
+    }
+  ],
+  "closingBalance": "126.00",
+  "page": 2,
+  "size": 10,
+  "numberOfElements": 2,
+  "totalEntries": 12
+}
